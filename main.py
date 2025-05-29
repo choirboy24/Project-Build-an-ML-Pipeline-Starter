@@ -5,6 +5,7 @@ import tempfile
 import os
 import wandb
 import hydra
+import networkx.algorithms.dag
 from omegaconf import DictConfig
 
 _steps = [
@@ -21,8 +22,10 @@ _steps = [
 
 
 # This automatically reads in the configuration
-@hydra.main(config_name='config')
+@hydra.main(config_path='.', config_name='config', version_base=None)
 def go(config: DictConfig):
+
+    root_path = os.getcwd()
 
     # Setup the wandb experiment. All runs will be grouped under this name
     os.environ["WANDB_PROJECT"] = config["main"]["project_name"]
@@ -54,18 +57,52 @@ def go(config: DictConfig):
             ##################
             # Implement here #
             ##################
+            _ = mlflow.run(
+                os.path.join(root_path, "src/basic_cleaning"),
+                "main",
+                env_manager="conda",
+                parameters={
+                    "input_artifact": "sample.csv:latest",
+                    "output_artifact": "clean_sample.csv",
+                    "output_type": "clean_data",
+                    "output_description": "Artifact output at end of cleaning",
+                    "min_price": 10,
+                    "max_price": 350
+                }
+            )
             pass
 
         if "data_check" in active_steps:
             ##################
             # Implement here #
             ##################
-            pass
+            _ = mlflow.run(
+                os.path.join(root_path, "src/data_check"),
+                "main",
+                env_manager="conda",
+                parameters={
+                    "csv": "clean_sample.csv:latest",
+                    "ref": "clean_sample.csv:reference",
+                    "kl_threshold": config['data_check']['kl_threshold'],
+                    "min_price": config['etl']['min_price'],
+                    "max_price": config['etl']['max_price']
+                }
+            )
 
         if "data_split" in active_steps:
             ##################
             # Implement here #
             ##################
+            _ = mlflow.run(
+                f"{config['main']['components_repository']}/train_val_test_split",
+                'main',
+                parameters={
+                    "input": "clean_sample.csv:latest",
+                    "test_size": config['modeling']['test_size'],
+                    "random_seed": config['modeling']['random_seed'],
+                    "stratify_by": config['modeling']['stratify_by']
+                }
+            )
             pass
 
         if "train_random_forest" in active_steps:
@@ -81,7 +118,20 @@ def go(config: DictConfig):
             ##################
             # Implement here #
             ##################
-
+            _ = mlflow.run(
+                os.path.join(root_path, "src/train_random_forest"),
+                "main",
+                env_manager="conda",
+                parameters={
+                    "trainval_artifact": "trainval_data.csv:latest",
+                    "val_size": config['modeling']['val_size'],
+                    "random_seed": config['modeling']['random_seed'],
+                    "stratify_by": config['modeling']['stratify_by'],
+                    "rf_config": rf_config,
+                    "max_tfidf_features": config['modeling']['max_tfidf_features'],
+                    "output_artifact": "random_forest_export.csv"
+                }
+            )
             pass
 
         if "test_regression_model" in active_steps:
