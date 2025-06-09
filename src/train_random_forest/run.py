@@ -98,7 +98,8 @@ def go(args):
     # Save the sk_pipe pipeline as a mlflow.sklearn model in the directory "random_forest_dir"
     # HINT: use mlflow.sklearn.save_model
     mlflow.sklearn.save_model(
-        sk_pipe, "random_forest_dir",
+        sk_pipe,
+        "random_forest_dir",
         input_example = X_train.iloc[:5]
     )
     ######################################
@@ -125,11 +126,10 @@ def go(args):
     ######################################
 
     # Upload to W&B the feature importance visualization
-    run.log(
-        {
-          "feature_importance": wandb.Image(fig_feat_imp),
-        }
-    )
+
+    wandb.log({
+        "feature_importance": wandb.Image(fig_feat_imp)
+    })
 
     mlflow.log_image("feature_importance", fig_feat_imp)
 
