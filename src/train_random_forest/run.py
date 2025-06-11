@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import matplotlib.pyplot as plt
+import hydra
 
 import mlflow
 import json
@@ -23,6 +24,7 @@ import wandb
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.pipeline import Pipeline, make_pipeline
+from omegaconf import DictConfig, OmegaConf
 
 
 def delta_date_feature(dates):
@@ -36,7 +38,6 @@ def delta_date_feature(dates):
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 logger = logging.getLogger()
-
 
 def go(args):
 
@@ -52,7 +53,7 @@ def go(args):
     rf_config['random_state'] = args.random_seed
 
     # Use run.use_artifact(...).file() to get the train and validation artifact
-    # and save the returned path in train_local_pat
+    # and save the returned path in train_local_path
     trainval_local_path = run.use_artifact(args.trainval_artifact).file()
    
     X = pd.read_csv(trainval_local_path)
@@ -76,6 +77,8 @@ def go(args):
     # YOUR CODE HERE
     ######################################
 
+    sk_pipe.fit(X_train, y_train)
+
     # Compute r2 and MAE
     logger.info("Scoring")
     r_squared = sk_pipe.score(X_val, y_val)
@@ -96,7 +99,8 @@ def go(args):
     # Save the sk_pipe pipeline as a mlflow.sklearn model in the directory "random_forest_dir"
     # HINT: use mlflow.sklearn.save_model
     mlflow.sklearn.save_model(
-        # YOUR CODE HERE
+        sk_pipe,
+        "random_forest_dir",
         input_example = X_train.iloc[:5]
     )
     ######################################
@@ -111,23 +115,29 @@ def go(args):
     )
     artifact.add_dir('random_forest_dir')
     run.log_artifact(artifact)
-
+    
     # Plot feature importance
     fig_feat_imp = plot_feature_importance(sk_pipe, processed_features)
-
+    
     ######################################
     # Here we save variable r_squared under the "r2" key
     run.summary['r2'] = r_squared
     # Now save the variable mae under the key "mae".
-    # YOUR CODE HERE
+    run.summary['mae'] = mae
     ######################################
 
-    # Upload to W&B the feture importance visualization
-    run.log(
-        {
-          "feature_importance": wandb.Image(fig_feat_imp),
-        }
-    )
+    # Upload to W&B the feature importance visualization
+    
+    wandb.log({
+        "feature_importance": wandb.Image(fig_feat_imp)
+    })
+
+    # Assuming fig_feat_imp is your figure object
+    fig_feat_imp.savefig("feature_importance.png")  # Save the figure to a file
+
+    mlflow.log_artifact(os.path.abspath("feature_importance.png"))  # Use log_artifact instead of log_image
+
+    os.remove("feature_importance.png")  # Clean up the saved file
 
 
 def plot_feature_importance(pipe, feat_names):
@@ -162,7 +172,8 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
     # 1 - A SimpleImputer(strategy="most_frequent") to impute missing values
     # 2 - A OneHotEncoder() step to encode the variable
     non_ordinal_categorical_preproc = make_pipeline(
-        # YOUR CODE HERE
+        SimpleImputer(strategy='most_frequent'),
+        OneHotEncoder()
     )
     ######################################
 
@@ -213,7 +224,6 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
     )
 
     processed_features = ordinal_categorical + non_ordinal_categorical + zero_imputed + ["last_review", "name"]
-
     # Create random forest
     random_forest = RandomForestRegressor(**rf_config)
 
@@ -224,8 +234,9 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
     # HINT: Use the explicit Pipeline constructor so you can assign the names to the steps, do not use make_pipeline
 
     sk_pipe = Pipeline(
-        steps =[
-        # YOUR CODE HERE
+        [
+        ("preprocessor", preprocessor),
+        ("random_forest", random_forest)
         ]
     )
 

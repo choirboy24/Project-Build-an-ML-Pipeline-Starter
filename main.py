@@ -5,6 +5,8 @@ import tempfile
 import os
 import wandb
 import hydra
+# import networkx.algorithms.dag
+from omegaconf import OmegaConf
 from omegaconf import DictConfig
 
 _steps = [
@@ -21,7 +23,7 @@ _steps = [
 
 
 # This automatically reads in the configuration
-@hydra.main(config_name='config')
+@hydra.main(config_path='.', config_name='config', version_base=None)
 def go(config: DictConfig):
 
     root_path = os.getcwd()
@@ -105,13 +107,16 @@ def go(config: DictConfig):
 
         if "train_random_forest" in active_steps:
 
-            train_path = os.path.abspath(os.path.join(root_path, "src/train_random_forest"))
+            # train_path = os.path.abspath(os.path.join(root_path, "src/train_random_forest"))
 
             # NOTE: we need to serialize the random forest configuration into JSON
             rf_config = os.path.abspath("rf_config.json")
-            with open(rf_config, "w+") as fp:
-                json.dump(dict(config["modeling"]["random_forest"].items()), fp)  # DO NOT TOUCH
 
+            # rf_config_dict = OmegaConf.to_container(config["modeling"]["random_forest"], resolve=True)
+        
+            with open(rf_config, "w+") as fp:
+                # json.dump(rf_config_dict, fp, indent=4)
+                json.dump(dict(config["modeling"]["random_forest"].items()), fp)  # DO NOT TOUCH
             # NOTE: use the rf_config we just created as the rf_config parameter for the train_random_forest
             # step
 
@@ -119,7 +124,7 @@ def go(config: DictConfig):
             # Implement here #
             ##################
             _ = mlflow.run(
-                train_path,
+                os.path.join(root_path, "src/train_random_forest"),
                 "main",
                 env_manager="conda",
                 parameters={
@@ -139,7 +144,15 @@ def go(config: DictConfig):
             # Implement here #
             ##################
 
-            pass
+            _ = mlflow.run(
+                os.path.join(root_path, "components/test_regression_model"),
+                "main",
+                env_manager="conda",
+                parameters={
+                    "mlflow_model": "random_forest_export:prod",
+                    "test_dataset": "test_data.csv:latest"
+                }
+            )
 
 
 if __name__ == "__main__":
